@@ -5,6 +5,8 @@ on:
   schedule:
     - cron: '0 * * * *' # Runs automatically at the start of every hour
   workflow_dispatch: # This allows you to manually press a button on GitHub to test it anytime!
+  repository_dispatch:
+    types: [manual-trigger]
 
 jobs:
   scrape:
