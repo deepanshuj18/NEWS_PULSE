@@ -15,11 +15,67 @@ const activeJobs = new Map<number, { process: any; startedAt: Date }>();
 
 /**
  * POST /ingest/trigger
- * Triggers the GitHub Actions scraping pipeline via repository_dispatch webhook.
+ * In development: spawns the local Python scraper as a child process.
+ * In production:  dispatches a GitHub Actions workflow via the GitHub API.
  * Returns 202 Accepted with a jobId for status polling.
  */
 router.post("/trigger", async (req: Request, res: Response) => {
   try {
+    // ── LOCAL DEVELOPMENT MODE ──────────────────────────────────────────────
+    if (process.env.NODE_ENV === "development") {
+      console.log("[Ingest] Local development detected — spawning local scraper…");
+
+      // Resolve paths from .env (set in backend/.env)
+      // process.cwd() is the 'backend' directory where the server was started
+      const pythonInterpreter = path.resolve(
+        process.cwd(),
+        process.env.PYTHON_PATH || "../scraper/venv/Scripts/python.exe"
+      );
+      const scraperDir = path.resolve(
+        process.cwd(),
+        process.env.SCRAPER_DIR || "../scraper"
+      );
+      const scraperScript = path.resolve(scraperDir, "main.py");
+
+      console.log(`[Ingest] Executing: ${pythonInterpreter} ${scraperScript}`);
+      console.log(`[Ingest] Working dir: ${scraperDir}`);
+
+      const jobId = `local_${Date.now()}`;
+
+      // Spawn asynchronously — don't block the HTTP response
+      const scraperProcess = spawn(pythonInterpreter, [scraperScript], {
+        cwd: scraperDir,
+        env: { ...process.env }, // Pass DATABASE_URL, GEMINI_API_KEY etc.
+      });
+
+      // Stream stdout/stderr to the Node console in real-time
+      scraperProcess.stdout.on("data", (data: Buffer) => {
+        console.log(`[Scraper] ${data.toString().trim()}`);
+      });
+
+      scraperProcess.stderr.on("data", (data: Buffer) => {
+        console.error(`[Scraper ERR] ${data.toString().trim()}`);
+      });
+
+      scraperProcess.on("error", (err: Error) => {
+        console.error(`[Ingest] Failed to start local scraper process: ${err.message}`);
+        console.error(`Please verify that PYTHON_PATH (${pythonInterpreter}) is correct.`);
+      });
+
+      scraperProcess.on("close", (code: number | null) => {
+        console.log(`[Ingest] Local scraper exited with code ${code}`);
+        // Bust the timeline cache so the next frontend poll gets fresh data
+        invalidateTimelineCache();
+      });
+
+      return res.status(202).json({
+        jobId,
+        status: "running",
+        message: "Local scraper pipeline spawned in background.",
+      });
+    }
+
+    // ── PRODUCTION: GitHub Actions dispatch ──────────────────────────────────
     const githubToken = process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
     if (!githubToken) {
       console.warn("[Ingest] Warning: GITHUB_PERSONAL_ACCESS_TOKEN is not set. Mocking trigger response.");
@@ -47,10 +103,9 @@ router.post("/trigger", async (req: Request, res: Response) => {
     }
 
     console.log("[Ingest] GitHub pipeline triggered successfully.");
-    // Returns a mock/running job ID immediately as requested by the JD
     return res.status(202).json({ jobId: `job_${Date.now()}`, status: "running" });
   } catch (error) {
-    console.error("Failed to trigger GitHub pipeline:", error);
+    console.error("Failed to trigger pipeline:", error);
     return res.status(500).json({ error: "Failed to initialize scraping pipeline" });
   }
 });
@@ -63,9 +118,10 @@ router.get("/status/:jobId", async (req: Request, res: Response) => {
   try {
     const jobId = req.params.jobId;
     
-    // Handle mock string job IDs from GitHub Actions trigger
-    if (typeof jobId === "string" && jobId.startsWith("job_")) {
-      const timestamp = parseInt(jobId.replace("job_", ""), 10);
+    // Handle mock string job IDs (job_* from production mock, local_* from dev mode)
+    if (typeof jobId === "string" && (jobId.startsWith("job_") || jobId.startsWith("local_"))) {
+      const prefix = jobId.startsWith("local_") ? "local_" : "job_";
+      const timestamp = parseInt(jobId.replace(prefix, ""), 10);
       const isCompleted = Date.now() - timestamp > 45000; // Mock 45s run time
       return res.json({
         jobId: jobId,

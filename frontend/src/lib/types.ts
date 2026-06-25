@@ -65,3 +65,33 @@ export interface IngestStatusResponse {
   error: string | null;
   articlesProcessed: number;
 }
+
+// ── Story Groups ─────────────────────────────────────────────────────────────
+
+export interface StoryGroupArticle {
+  id: number;
+  title: string;
+  url: string;
+  publishedAt: string;
+  source: string;
+}
+
+export interface StoryGroupCluster {
+  id: number;
+  label: string;
+  articles: StoryGroupArticle[];
+}
+
+export interface StoryGroup {
+  id: number;
+  title: string;
+  clusterCount: number;
+  articleCount: number;
+  lastUpdated: string | null;
+  clusters: StoryGroupCluster[];
+}
+
+export interface StoryGroupsResponse {
+  storyGroups: StoryGroup[];
+  standaloneItems: TimelineItem[];
+}

@@ -10,6 +10,7 @@ Usage:
 
 import sys
 import io
+import time
 import argparse
 import traceback
 
@@ -138,6 +139,8 @@ def run_clustering(pipeline_run_id):
 
 def run_pipeline(run_id=None):
     """Run the full pipeline: init → fetch → cluster."""
+    start_time = time.time()
+
     print("\n" + "#" * 60)
     print("# NEWS PULSE — Pipeline Start")
     print("#" * 60)
@@ -162,11 +165,16 @@ def run_pipeline(run_id=None):
         # Update run status
         update_pipeline_run(run_id, "completed", articles_processed=new_articles)
 
+        elapsed = time.time() - start_time
+        minutes = int(elapsed // 60)
+        seconds = int(elapsed % 60)
+
         print("\n" + "#" * 60)
         print(f"# Pipeline Complete!")
-        print(f"# New articles: {new_articles}")
-        print(f"# Clusters: {num_clusters}")
-        print(f"# Run ID: {run_id}")
+        print(f"# New articles:  {new_articles}")
+        print(f"# Clusters:      {num_clusters}")
+        print(f"# Run ID:        {run_id}")
+        print(f"# Time taken:    {minutes}m {seconds}s ({elapsed:.2f}s total)")
         print("#" * 60)
 
         return run_id

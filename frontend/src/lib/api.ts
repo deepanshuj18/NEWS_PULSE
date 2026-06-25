@@ -8,6 +8,7 @@ import type {
   ClustersResponse,
   IngestTriggerResponse,
   IngestStatusResponse,
+  StoryGroupsResponse,
 } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
@@ -51,4 +52,8 @@ export async function triggerIngest(): Promise<IngestTriggerResponse> {
 
 export async function getIngestStatus(jobId: number): Promise<IngestStatusResponse> {
   return fetchAPI<IngestStatusResponse>(`/ingest/status/${jobId}`);
+}
+
+export async function getStoryGroups(): Promise<StoryGroupsResponse> {
+  return fetchAPI<StoryGroupsResponse>("/story-groups");
 }

@@ -1,11 +1,15 @@
 """
 Topic clustering using TF-IDF + HDBSCAN.
 Groups related articles into meaningful clusters and generates labels.
+
+Label generation is BATCHED: clusters are formed first, then all labels
+are generated in a single batched call to Gemini (10 clusters per API request).
 """
 
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from gemini_labeler import generate_labels_batched
 
 try:
     import hdbscan
@@ -57,9 +61,11 @@ def prepare_text(article):
 
 def cluster_articles(articles):
     """
-    Cluster articles using TF-IDF vectors + HDBSCAN.
+    Cluster articles using TF-IDF vectors + HDBSCAN, then batch-label all clusters
+    via Gemini in a single pass.
+
     Returns a list of clusters, each containing:
-    - label: auto-generated cluster label
+    - label: auto-generated cluster label (Gemini or keyword fallback)
     - article_ids: list of article IDs in the cluster
     - articles: the article dicts belonging to this cluster
     """
@@ -83,18 +89,70 @@ def cluster_articles(articles):
     tfidf_matrix = vectorizer.fit_transform(texts)
     feature_names = vectorizer.get_feature_names_out()
 
+    # ── Step 1: Form unlabeled clusters ──────────────────────────────────────
     if HAS_HDBSCAN and len(articles) >= MIN_CLUSTER_SIZE:
-        clusters = _hdbscan_cluster(tfidf_matrix, articles, feature_names, vectorizer)
+        raw_clusters = _hdbscan_cluster(tfidf_matrix, articles, feature_names)
     else:
-        clusters = _keyword_overlap_cluster(articles, feature_names, vectorizer, tfidf_matrix)
+        raw_clusters = _keyword_overlap_cluster(articles, feature_names, tfidf_matrix)
 
-    print(f"[Cluster] Found {len(clusters)} clusters.")
+    print(f"[Cluster] Found {len(raw_clusters)} clusters. Starting batch labeling...")
+
+    # ── Step 2: Pre-generate fallback labels and gather headlines ─────────────
+    # These are computed LOCALLY (no API call) so they're always available.
+    cluster_headline_map = {}  # idx → [headline1, headline2, headline3]
+    fallback_labels = {}       # idx → keyword-based label string
+
+    for idx, cluster in enumerate(raw_clusters):
+        fallback_labels[idx] = cluster["keyword_label"]
+        headlines = _select_representative_headlines(cluster["articles"], max_count=3)
+        cluster_headline_map[idx] = headlines
+
+    # ── Step 3: Batch-label all clusters via Gemini ──────────────────────────
+    result = generate_labels_batched(cluster_headline_map, fallback_labels)
+
+    gemini_labels = result["labels"]         # idx → final label
+    total_input  = result["input_tokens"]
+    total_output = result["output_tokens"]
+    total_cost   = result["cost"]
+
+    # ── Step 4: Assemble final cluster objects with labels ───────────────────
+    clusters = []
+    for idx, cluster in enumerate(raw_clusters):
+        label = gemini_labels.get(idx, fallback_labels[idx])
+        clusters.append({
+            "label": label,
+            "article_ids": cluster["article_ids"],
+            "articles": cluster["articles"],
+        })
+
+    print(f"[Cluster] Labeled {len(clusters)} clusters successfully.")
+
+    # ── Step 5: Print Gemini telemetry report ────────────────────────────────
+    if total_input > 0:
+        print("\n" + "=" * 60)
+        print("   BATCHED GEMINI 2.5 FLASH TELEMETRY REPORT")
+        print("=" * 60)
+        print(f"  Clusters Labeled:            {len(clusters)}")
+        print(f"  API Calls Made:              {(len(clusters) + 9) // 10}")
+        print(f"  Total Input Tokens:          {total_input:,}")
+        print(f"  Total Output Tokens:         {total_output:,}")
+        print(f"  Input Cost:                  ${(total_input / 1_000_000) * 0.15:.6f}")
+        print(f"  Output Cost:                 ${(total_output / 1_000_000) * 0.60:.6f}")
+        print(f"  Total Pipeline Cost:         ${total_cost:.6f}")
+        print("=" * 60)
+
     return clusters
 
 
-def _hdbscan_cluster(tfidf_matrix, articles, feature_names, vectorizer):
-    """Cluster using HDBSCAN on TF-IDF vectors."""
-    # Convert sparse to dense for HDBSCAN
+# ─── Clustering Algorithms ────────────────────────────────────────────────────
+# Both return a list of "raw cluster" dicts with:
+#   - keyword_label:  TF-IDF fallback label (always computed locally)
+#   - article_ids:    list of article IDs
+#   - articles:       list of article dicts
+# Gemini labeling happens AFTER clustering, not inside these functions.
+
+def _hdbscan_cluster(tfidf_matrix, articles, feature_names):
+    """Cluster using HDBSCAN on TF-IDF vectors. Returns unlabeled raw clusters."""
     dense = tfidf_matrix.toarray()
 
     clusterer = hdbscan.HDBSCAN(
@@ -114,41 +172,38 @@ def _hdbscan_cluster(tfidf_matrix, articles, feature_names, vectorizer):
             cluster_map[label] = []
         cluster_map[label].append(idx)
 
-    # Build cluster objects with labels
-    clusters = []
+    # Build raw cluster objects (without Gemini labels — those come later)
+    raw_clusters = []
     for cluster_label, indices in cluster_map.items():
         cluster_articles_list = [articles[i] for i in indices]
         article_ids = [articles[i]["id"] for i in indices]
+        keyword_label = _generate_label(tfidf_matrix, indices, feature_names)
 
-        # Generate label from top TF-IDF terms in this cluster
-        label = _generate_label(tfidf_matrix, indices, feature_names)
-
-        clusters.append({
-            "label": label,
+        raw_clusters.append({
+            "keyword_label": keyword_label,
             "article_ids": article_ids,
             "articles": cluster_articles_list,
         })
 
-    return clusters
+    return raw_clusters
 
 
-def _keyword_overlap_cluster(articles, feature_names, vectorizer, tfidf_matrix):
+def _keyword_overlap_cluster(articles, feature_names, tfidf_matrix):
     """
     Fallback: cluster using cosine similarity threshold on TF-IDF vectors.
-    This works when HDBSCAN is not available or dataset is very small.
+    Returns unlabeled raw clusters.
     """
     sim_matrix = cosine_similarity(tfidf_matrix)
-    threshold = 0.3  # articles with >0.3 cosine similarity are grouped
+    threshold = 0.3
 
     n = len(articles)
     visited = set()
-    clusters = []
+    raw_clusters = []
 
     for i in range(n):
         if i in visited:
             continue
 
-        # Find all articles similar to article i
         cluster_indices = [i]
         visited.add(i)
 
@@ -163,34 +218,58 @@ def _keyword_overlap_cluster(articles, feature_names, vectorizer, tfidf_matrix):
         if len(cluster_indices) >= 2:
             cluster_articles_list = [articles[idx] for idx in cluster_indices]
             article_ids = [articles[idx]["id"] for idx in cluster_indices]
-            label = _generate_label(tfidf_matrix, cluster_indices, feature_names)
+            keyword_label = _generate_label(tfidf_matrix, cluster_indices, feature_names)
 
-            clusters.append({
-                "label": label,
+            raw_clusters.append({
+                "keyword_label": keyword_label,
                 "article_ids": article_ids,
                 "articles": cluster_articles_list,
             })
 
-    return clusters
+    return raw_clusters
+
+
+# ─── Shared Utility Functions ─────────────────────────────────────────────────
+
+def _select_representative_headlines(cluster_articles_list, max_count=3):
+    """
+    Select up to `max_count` representative headlines from a cluster.
+    Prefers articles with earliest published_at dates to capture the original reporting.
+    """
+    def sort_key(article):
+        pub = article.get("published_at")
+        if pub is None:
+            return "9999"  # push to end
+        return str(pub)
+
+    sorted_articles = sorted(cluster_articles_list, key=sort_key)
+
+    headlines = []
+    for article in sorted_articles:
+        title = article.get("title", "").strip()
+        if title and title not in headlines:
+            headlines.append(title)
+        if len(headlines) >= max_count:
+            break
+
+    return headlines
 
 
 def _generate_label(tfidf_matrix, indices, feature_names):
     """
     Generate a human-readable label for a cluster using the top TF-IDF terms.
+    This serves as the LOCAL fallback when Gemini is unavailable.
     """
-    # Get mean TF-IDF vector for this cluster
     cluster_vectors = tfidf_matrix[indices]
     if hasattr(cluster_vectors, 'toarray'):
         mean_vector = np.asarray(cluster_vectors.mean(axis=0)).flatten()
     else:
         mean_vector = np.mean(cluster_vectors, axis=0)
 
-    # Get top terms
     top_indices = mean_vector.argsort()[-4:][::-1]
     top_terms = [feature_names[i] for i in top_indices if mean_vector[i] > 0]
 
     if top_terms:
-        # Capitalize and join
         label = " / ".join(term.title() for term in top_terms[:3])
     else:
         label = "Uncategorized"
@@ -210,7 +289,6 @@ def group_stories(clusters, tfidf_matrix=None, articles=None):
 
     # Compute centroid for each cluster by averaging article texts
     all_texts = []
-    cluster_text_map = []
 
     for cluster in clusters:
         combined = " ".join(

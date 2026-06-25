@@ -51,4 +51,4 @@ MIN_SAMPLES = 2
 CLUSTER_SELECTION_METHOD = "eom"
 
 # Story grouping
-STORY_MERGE_THRESHOLD = 0.75  # cosine similarity threshold
+STORY_MERGE_THRESHOLD = 0.35  # cosine similarity threshold

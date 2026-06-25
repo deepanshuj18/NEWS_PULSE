@@ -15,6 +15,7 @@ import cors from "cors";
 import clusterRoutes from "./routes/clusters";
 import timelineRoutes from "./routes/timeline";
 import ingestRoutes from "./routes/ingest";
+import storyGroupRoutes from "./routes/story-groups";
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3001", 10);
@@ -59,6 +60,7 @@ app.get("/", (_req, res) => {
 app.use("/clusters", clusterRoutes);
 app.use("/timeline", timelineRoutes);
 app.use("/ingest", ingestRoutes);
+app.use("/story-groups", storyGroupRoutes);
 
 // --- Health check ---
 
