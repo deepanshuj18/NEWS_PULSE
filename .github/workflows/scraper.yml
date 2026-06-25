@@ -1,3 +1,4 @@
+
 name: Run News Pulse Scraper
 
 on:
@@ -10,10 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5 # Upgraded from v4 to clear Node warning
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6 # Upgraded from v5 to clear Node warning
         with:
           python-version: '3.10'
 
