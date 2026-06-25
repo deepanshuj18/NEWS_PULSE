@@ -23,9 +23,13 @@ const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3000";
 // --- Middleware ---
 
 app.use(cors({
-  origin: CORS_ORIGIN.split(",").map(s => s.trim()),
-  methods: ["GET", "POST"],
-  credentials: true,
+  origin: [
+    'https://news-pulse-seven-henna.vercel.app', // Your production Vercel frontend URL
+    'http://localhost:3000'                      // Allows you to still test locally
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }));
 
 app.use(express.json());
