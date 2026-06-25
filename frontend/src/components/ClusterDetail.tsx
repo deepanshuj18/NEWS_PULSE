@@ -21,9 +21,19 @@ function formatDateTime(dateStr: string): string {
 
 export default function ClusterDetail({ cluster, isLoading, onClose, isOpen }: ClusterDetailProps) {
   return (
-    <aside 
-      className={`glass-panel fixed top-0 right-0 w-full md:w-[400px] h-screen border-l border-slate-200 dark:border-white/5 shadow-2xl transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] z-50 flex flex-col ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
-    >
+    <>
+      {/* Backdrop for mobile to dim background */}
+      {isOpen && (
+        <div 
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 md:hidden"
+          onClick={onClose}
+        />
+      )}
+      
+      {/* Drawer Panel */}
+      <aside 
+        className={`fixed inset-x-0 bottom-0 top-20 md:top-0 md:left-auto md:right-0 md:w-[400px] h-auto md:h-screen bg-slate-50 dark:bg-[#0B0E14] shadow-2xl z-50 flex flex-col rounded-t-3xl md:rounded-none border-t md:border-t-0 md:border-l border-slate-200 dark:border-white/5 transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${isOpen ? 'translate-y-0 md:translate-x-0' : 'translate-y-full md:translate-x-full md:translate-y-0'}`}
+      >
       <div className="p-6 border-b border-slate-200 dark:border-white/10 flex justify-between items-start bg-slate-100/50 dark:bg-black/20">
         <div>
           <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1">
@@ -72,5 +82,6 @@ export default function ClusterDetail({ cluster, isLoading, onClose, isOpen }: C
         )}
       </div>
     </aside>
+    </>
   );
 }

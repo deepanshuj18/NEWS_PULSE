@@ -99,14 +99,14 @@ export default function Home() {
       >
         {/* Top Navigation Bar */}
         <nav className="glass-panel sticky top-0 z-40 border-b border-slate-200 dark:border-white/5 px-6 py-4 w-full backdrop-blur-xl bg-white/60 dark:bg-[#0B0E14]/80">
-          <div className="max-w-7xl mx-auto flex justify-between items-center w-full">
+          <div className="max-w-7xl mx-auto flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center w-full">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-500/20">
                 NP
               </div>
               <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">News Pulse</h1>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 self-end sm:self-auto">
               {lastUpdated && (
                 <span className="text-xs text-slate-500 dark:text-slate-400 font-medium hidden sm:block">
                   Updated: {new Date(lastUpdated).toLocaleTimeString()}

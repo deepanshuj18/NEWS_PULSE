@@ -123,8 +123,16 @@ export default function VolumeChart({ items }: VolumeChartProps) {
     },
     scales: {
       x: {
-        grid: { color: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)', drawBorder: false },
-        ticks: { color: isDark ? '#94a3b8' : '#64748b' }
+        grid: { color: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)', drawBorder: false, display: typeof window !== 'undefined' && window.innerWidth >= 640 },
+        ticks: { 
+          color: isDark ? '#94a3b8' : '#64748b',
+          maxTicksLimit: typeof window !== 'undefined' && window.innerWidth < 640 ? 4 : 8,
+          maxRotation: 45,
+          minRotation: 45,
+          font: {
+            size: typeof window !== 'undefined' && window.innerWidth < 640 ? 10 : 12
+          }
+        }
       },
       y: {
         grid: { color: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)' },
@@ -139,7 +147,7 @@ export default function VolumeChart({ items }: VolumeChartProps) {
       <div className="flex justify-between items-center mb-6">
         <h3 className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-[0.1em]">Ingestion Volume (24h)</h3>
       </div>
-      <div className="relative w-full h-[240px]">
+      <div className="relative w-full h-[220px] sm:h-[300px]">
         {mounted && <Line data={chartData} options={options as any} />}
       </div>
     </section>
