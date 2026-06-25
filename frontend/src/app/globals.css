@@ -1,0 +1,124 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --animate-shimmer: shimmer 2s linear infinite;
+  --animate-slide-in: slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  @keyframes slide-in {
+    0% { transform: translateX(100%); }
+    100% { transform: translateX(0); }
+  }
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+/* Light Theme Background (Default) */
+.bg-ambient {
+  position: fixed;
+  top: 0; left: 0; width: 100vw; height: 100vh;
+  /* Soft, blurred central orb for light mode */
+  background: radial-gradient(circle at 50% 50%, rgba(168, 85, 247, 0.12), transparent 40%),
+              radial-gradient(circle at 55% 45%, rgba(99, 102, 241, 0.08), transparent 40%);
+  background-color: #f8fafc; /* Very light slate */
+  z-index: -1;
+  transition: background 0.3s ease;
+}
+
+/* Premium Dark Theme Background */
+.dark .bg-ambient {
+  background: radial-gradient(circle at 15% 50%, rgba(99, 102, 241, 0.15), transparent 25%),
+              radial-gradient(circle at 85% 30%, rgba(168, 85, 247, 0.15), transparent 25%);
+  background-color: #0B0E14; /* Deep midnight */
+}
+
+/* Glassmorphism Utilities */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.03);
+  transition: all 0.3s ease;
+}
+
+.dark .glass-panel {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+}
+
+.glass-bar {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  transition: transform 0.2s ease, filter 0.2s ease;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+}
+
+.dark .glass-bar {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+}
+
+.glass-bar:hover {
+  transform: scaleY(1.1);
+  filter: brightness(1.05);
+  cursor: pointer;
+}
+
+.dark .glass-bar:hover {
+  filter: brightness(1.2);
+}
+
+/* Timeline Specifics */
+.timeline-track {
+  height: 24px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+}
+
+.dark .timeline-track {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.timeline-segment {
+  position: absolute;
+  height: 100%;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  background: rgba(148, 163, 184, 0.3); /* Neutral slate for light mode */
+  box-shadow: inset 0 0 10px rgba(255,255,255,0.4);
+}
+
+.dark .timeline-segment {
+  background: rgba(255, 255, 255, 0.15); /* Neutral glass for dark mode */
+  box-shadow: inset 0 0 10px rgba(255,255,255,0.05);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.1); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.2); }
+
+.dark ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); }
+.dark ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
