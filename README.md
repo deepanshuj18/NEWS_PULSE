@@ -10,8 +10,8 @@
 
 | Link | URL |
 |---|---|
-| **Frontend** | [Your Vercel URL] |
-| **Backend API** | [Your Render URL] |
+| **Frontend** | https://news-pulse-seven-henna.vercel.app/ |
+| **Backend API** | https://news-pulse-05i3.onrender.com/ |
 | **Demo Video** | [YouTube / Loom Link] |
 
 ---

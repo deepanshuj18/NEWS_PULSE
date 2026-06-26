@@ -87,8 +87,10 @@ router.post("/trigger", async (req: Request, res: Response) => {
       {
         method: "POST",
         headers: {
-          Authorization: `token ${githubToken}`,
-          Accept: "application/vnd.github.v3+json",
+          Authorization: `Bearer ${githubToken.trim()}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": "News-Pulse-Backend-API",
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ event_type: "manual-trigger" }),
