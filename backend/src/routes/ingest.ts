@@ -93,7 +93,7 @@ router.post("/trigger", async (req: Request, res: Response) => {
           "User-Agent": "News-Pulse-Backend-API",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ event_type: "manual-trigger" }),
+        body: JSON.stringify({ event_type: "trigger-scraper" }),
       }
     );
 
