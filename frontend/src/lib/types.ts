@@ -52,18 +52,18 @@ export interface ClustersResponse {
 }
 
 export interface IngestTriggerResponse {
-  jobId: number;
+  jobId: string;
   status: string;
   message: string;
 }
 
 export interface IngestStatusResponse {
-  jobId: number;
-  status: "pending" | "processing" | "completed" | "failed";
+  jobId: string;
+  status: "pending" | "processing" | "running" | "completed" | "failed";
   startedAt: string;
   finishedAt: string | null;
-  error: string | null;
-  articlesProcessed: number;
+  error?: string | null;
+  articlesProcessed?: number;
 }
 
 // ── Story Groups ─────────────────────────────────────────────────────────────

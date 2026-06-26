@@ -16,6 +16,19 @@ const router = Router();
  */
 router.get("/", async (_req: Request, res: Response) => {
   try {
+    // Fetch the latest completed pipeline run ID
+    const latestRunResult = await query(`
+      SELECT id FROM pipeline_runs 
+      WHERE status = 'completed' 
+      ORDER BY finished_at DESC 
+      LIMIT 1
+    `);
+    const latestRunId = latestRunResult.rows[0]?.id;
+
+    if (!latestRunId) {
+      return res.json({ storyGroups: [], standaloneItems: [] });
+    }
+
     const concatFn = isSqlite()
       ? "GROUP_CONCAT(DISTINCT s.name)"
       : "STRING_AGG(DISTINCT s.name, ',')";
@@ -38,8 +51,9 @@ router.get("/", async (_req: Request, res: Response) => {
       LEFT JOIN cluster_articles ca ON c.id = ca.cluster_id
       LEFT JOIN articles a          ON ca.article_id = a.id
       LEFT JOIN sources s           ON a.source_id = s.id
+      WHERE c.pipeline_run_id = $1
       ORDER BY sg.id ASC, c.id ASC, a.published_at DESC
-    `);
+    `, [latestRunId]);
 
     // Aggregate flat rows into nested structure
     const sgMap = new Map<number, {
@@ -99,10 +113,10 @@ router.get("/", async (_req: Request, res: Response) => {
       LEFT JOIN cluster_articles ca ON c.id = ca.cluster_id
       LEFT JOIN articles a          ON ca.article_id = a.id
       LEFT JOIN sources s           ON a.source_id = s.id
-      WHERE c.id NOT IN (SELECT cluster_id FROM story_group_clusters)
+      WHERE c.pipeline_run_id = $1 AND c.id NOT IN (SELECT cluster_id FROM story_group_clusters)
       GROUP BY c.id, c.label, c.article_count
       ORDER BY start_time DESC
-    `);
+    `, [latestRunId]);
 
     const standaloneItems = standaloneResult.rows.map((row: any) => ({
       clusterId: row.id,

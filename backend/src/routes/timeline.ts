@@ -40,6 +40,19 @@ router.get("/", async (req: Request, res: Response) => {
       return res.json(timelineCache.data);
     }
 
+    // Fetch the latest completed pipeline run ID
+    const latestRunResult = await query(`
+      SELECT id FROM pipeline_runs 
+      WHERE status = 'completed' 
+      ORDER BY finished_at DESC 
+      LIMIT 1
+    `);
+    const latestRunId = latestRunResult.rows[0]?.id;
+
+    if (!latestRunId) {
+      return res.json({ items: [], totalClusters: 0, lastUpdated: new Date().toISOString() });
+    }
+
     // Use DB-appropriate aggregate: SQLite=GROUP_CONCAT, PostgreSQL=STRING_AGG
     const concatFn = isSqlite()
       ? "GROUP_CONCAT(DISTINCT s.name)"
@@ -58,10 +71,11 @@ router.get("/", async (req: Request, res: Response) => {
       JOIN cluster_articles ca ON c.id = ca.cluster_id
       JOIN articles a ON ca.article_id = a.id
       JOIN sources s ON a.source_id = s.id
+      WHERE c.pipeline_run_id = $1
       GROUP BY c.id, c.label, c.article_count
       HAVING COUNT(a.id) > 0
       ORDER BY start_time DESC
-    `);
+    `, [latestRunId]);
 
     // Get max article count for intensity normalization
     const maxCount = Math.max(...result.rows.map((r: any) => r.article_count), 1);

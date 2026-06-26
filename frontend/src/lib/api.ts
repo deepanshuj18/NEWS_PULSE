@@ -50,7 +50,7 @@ export async function triggerIngest(): Promise<IngestTriggerResponse> {
   });
 }
 
-export async function getIngestStatus(jobId: number): Promise<IngestStatusResponse> {
+export async function getIngestStatus(jobId: string | number): Promise<IngestStatusResponse> {
   return fetchAPI<IngestStatusResponse>(`/ingest/status/${jobId}`);
 }
 

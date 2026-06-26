@@ -10,8 +10,44 @@ import { invalidateTimelineCache } from "./timeline";
 
 const router = Router();
 
-// In-memory job tracking for active processes
-const activeJobs = new Map<number, { process: any; startedAt: Date }>();
+// In-memory job tracking for local processes
+const localJobStatus = new Map<string, { status: string; conclusion: string | null }>();
+
+// Track when production jobs were dispatched to avoid stale run detection
+const jobDispatchTime = new Map<string, number>();
+
+async function getGithubActionsStatus(
+  token: string,
+  dispatchedAfter?: number
+): Promise<{ status: string; conclusion: string | null }> {
+  const resp = await fetch(
+    "https://api.github.com/repos/deepanshuj18/NEWS_PULSE/actions/workflows/scraper.yml/runs?event=repository_dispatch&per_page=1",
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+      },
+    }
+  );
+  const data = await resp.json();
+  const latestRun = data.workflow_runs?.[0];
+  
+  if (!latestRun) return { status: "unknown", conclusion: null };
+
+  // If we know when this job was dispatched, ignore runs that started before it
+  if (dispatchedAfter) {
+    const runCreatedAt = new Date(latestRun.created_at).getTime();
+    if (runCreatedAt < dispatchedAfter) {
+      // The latest run is from before our dispatch — our run hasn't appeared yet
+      return { status: "queued", conclusion: null };
+    }
+  }
+  
+  return {
+    status: latestRun.status ?? "unknown",
+    conclusion: latestRun.conclusion ?? null
+  };
+}
 
 /**
  * POST /ingest/trigger
@@ -41,6 +77,7 @@ router.post("/trigger", async (req: Request, res: Response) => {
       console.log(`[Ingest] Working dir: ${scraperDir}`);
 
       const jobId = `local_${Date.now()}`;
+      localJobStatus.set(jobId, { status: "running", conclusion: null });
 
       // Spawn asynchronously — don't block the HTTP response
       const scraperProcess = spawn(pythonInterpreter, [scraperScript], {
@@ -64,8 +101,13 @@ router.post("/trigger", async (req: Request, res: Response) => {
 
       scraperProcess.on("close", (code: number | null) => {
         console.log(`[Ingest] Local scraper exited with code ${code}`);
-        // Bust the timeline cache so the next frontend poll gets fresh data
-        invalidateTimelineCache();
+        const conclusion = code === 0 ? "success" : "failure";
+        localJobStatus.set(jobId, { status: "completed", conclusion });
+        
+        if (conclusion === "success") {
+          // Bust the timeline cache so the next frontend poll gets fresh data
+          invalidateTimelineCache();
+        }
       });
 
       return res.status(202).json({
@@ -104,7 +146,9 @@ router.post("/trigger", async (req: Request, res: Response) => {
     }
 
     console.log("[Ingest] GitHub pipeline triggered successfully.");
-    return res.status(202).json({ jobId: `job_${Date.now()}`, status: "running" });
+    const jobId = `job_${Date.now()}`;
+    jobDispatchTime.set(jobId, Date.now());
+    return res.status(202).json({ jobId, status: "running" });
   } catch (error: any) {
     console.error("Failed to trigger pipeline:", error);
     return res.status(500).json({ 
@@ -124,14 +168,56 @@ router.get("/status/:jobId", async (req: Request, res: Response) => {
     
     // Handle mock string job IDs (job_* from production mock, local_* from dev mode)
     if (typeof jobId === "string" && (jobId.startsWith("job_") || jobId.startsWith("local_"))) {
-      const prefix = jobId.startsWith("local_") ? "local_" : "job_";
+      const isLocal = jobId.startsWith("local_");
+      const prefix = isLocal ? "local_" : "job_";
       const timestamp = parseInt(jobId.replace(prefix, ""), 10);
-      const isCompleted = Date.now() - timestamp > 45000; // Mock 45s run time
+      let finalStatus = "running";
+
+      if (!isLocal && process.env.GITHUB_PERSONAL_ACCESS_TOKEN) {
+        const dispatchedAt = jobDispatchTime.get(jobId);
+        const ghData = await getGithubActionsStatus(
+          process.env.GITHUB_PERSONAL_ACCESS_TOKEN,
+          dispatchedAt
+        );
+        if (ghData.status === "completed") {
+          if (ghData.conclusion === "success") {
+            finalStatus = "completed";
+          } else {
+            finalStatus = "failed";
+          }
+        } else {
+          finalStatus = "running";
+        }
+      } else {
+        const jobData = localJobStatus.get(jobId);
+        if (jobData) {
+          if (jobData.status === "completed") {
+            finalStatus = jobData.conclusion === "success" ? "completed" : "failed";
+          } else {
+            finalStatus = "running";
+          }
+        } else {
+          // Fallback if job is not in memory
+          const isCompleted = Date.now() - timestamp > 150000;
+          finalStatus = isCompleted ? "completed" : "running";
+        }
+      }
+
+      if (finalStatus === "completed") {
+        invalidateTimelineCache();
+        // Cleanup tracking maps
+        jobDispatchTime.delete(jobId);
+        localJobStatus.delete(jobId);
+      } else if (finalStatus === "failed") {
+        jobDispatchTime.delete(jobId);
+        localJobStatus.delete(jobId);
+      }
+
       return res.json({
         jobId: jobId,
-        status: isCompleted ? "completed" : "running",
+        status: finalStatus,
         startedAt: new Date(timestamp).toISOString(),
-        finishedAt: isCompleted ? new Date().toISOString() : null,
+        finishedAt: finalStatus === "completed" || finalStatus === "failed" ? new Date().toISOString() : null,
       });
     }
 

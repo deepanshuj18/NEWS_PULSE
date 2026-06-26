@@ -21,11 +21,12 @@ sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="repla
 from config import FEEDS
 from db import (
     init_db,
+    get_connection,
     ensure_sources,
     get_source_id,
     insert_article,
     get_all_articles,
-    clear_clusters,
+    clear_old_clusters,
     save_cluster,
     save_story_group,
     create_pipeline_run,
@@ -105,34 +106,45 @@ def run_clustering(pipeline_run_id):
         print("[Pipeline] No articles found for clustering.")
         return 0
 
-    # Clear old clusters before re-clustering
-    clear_clusters()
-
     # Run clustering
     clusters = cluster_articles(articles)
 
-    # Save clusters to DB
-    cluster_ids = []
-    for cluster in clusters:
-        cluster_id = save_cluster(
-            label=cluster["label"],
-            article_ids=cluster["article_ids"],
-            pipeline_run_id=pipeline_run_id,
-        )
-        cluster_ids.append(cluster_id)
-        cluster["db_id"] = cluster_id
-        print(f"  Cluster '{cluster['label']}' — {len(cluster['article_ids'])} articles")
+    conn = get_connection()
+    try:
+        # Save clusters to DB
+        cluster_ids = []
+        for cluster in clusters:
+            cluster_id = save_cluster(
+                label=cluster["label"],
+                article_ids=cluster["article_ids"],
+                pipeline_run_id=pipeline_run_id,
+                conn=conn
+            )
+            cluster_ids.append(cluster_id)
+            cluster["db_id"] = cluster_id
+            print(f"  Cluster '{cluster['label']}' — {len(cluster['article_ids'])} articles")
 
-    # Run story grouping
-    print("\n" + "=" * 60)
-    print("PHASE 3: Story grouping")
-    print("=" * 60)
+        # Run story grouping
+        print("\n" + "=" * 60)
+        print("PHASE 3: Story grouping")
+        print("=" * 60)
 
-    story_groups = group_stories(clusters)
-    for sg in story_groups:
-        sg_cluster_ids = [clusters[i]["db_id"] for i in sg["cluster_indices"]]
-        save_story_group(sg["title"], sg_cluster_ids)
-        print(f"  Story Group '{sg['title']}' — {len(sg_cluster_ids)} clusters merged")
+        story_groups = group_stories(clusters)
+        for sg in story_groups:
+            sg_cluster_ids = [clusters[i]["db_id"] for i in sg["cluster_indices"]]
+            save_story_group(sg["title"], sg_cluster_ids, conn=conn)
+            print(f"  Story Group '{sg['title']}' — {len(sg_cluster_ids)} clusters merged")
+
+        # Delete old clusters and story groups only after new data is safe
+        clear_old_clusters(pipeline_run_id, conn=conn)
+
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"[Pipeline] Transaction failed during clustering DB updates: {e}")
+        raise
+    finally:
+        conn.close()
 
     return len(clusters)
 

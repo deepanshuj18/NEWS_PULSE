@@ -327,21 +327,57 @@ def get_all_articles():
         return [dict(zip(columns, row)) for row in rows]
 
 
-def clear_clusters():
-    """Clear existing cluster data before re-clustering."""
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM story_group_clusters")
-    cur.execute("DELETE FROM story_groups")
-    cur.execute("DELETE FROM cluster_articles")
-    cur.execute("DELETE FROM clusters")
-    conn.commit()
-    conn.close()
+def clear_old_clusters(current_run_id, conn=None):
+    """Clear cluster data from previous pipeline runs."""
+    manage_tx = (conn is None)
+    if manage_tx:
+        conn = get_connection()
+    try:
+        cur = conn.cursor()
+        placeholder = "?" if _is_sqlite() else "%s"
+        
+        # Delete from story_group_clusters linking to old clusters
+        cur.execute(f"""
+            DELETE FROM story_group_clusters 
+            WHERE cluster_id IN (
+                SELECT id FROM clusters WHERE pipeline_run_id != {placeholder} OR pipeline_run_id IS NULL
+            )
+        """, (current_run_id,))
+        
+        # Delete from cluster_articles linking to old clusters
+        cur.execute(f"""
+            DELETE FROM cluster_articles 
+            WHERE cluster_id IN (
+                SELECT id FROM clusters WHERE pipeline_run_id != {placeholder} OR pipeline_run_id IS NULL
+            )
+        """, (current_run_id,))
+        
+        # Delete old clusters
+        cur.execute(f"DELETE FROM clusters WHERE pipeline_run_id != {placeholder} OR pipeline_run_id IS NULL", (current_run_id,))
+        
+        # Delete orphaned story_groups
+        cur.execute("""
+            DELETE FROM story_groups 
+            WHERE id NOT IN (SELECT story_group_id FROM story_group_clusters)
+        """)
+        
+        if manage_tx:
+            conn.commit()
+    except Exception as e:
+        if manage_tx:
+            conn.rollback()
+        print(f"[DB] Error in clear_old_clusters, transaction rolled back: {e}")
+        raise e
+    finally:
+        if manage_tx and conn:
+            conn.close()
 
 
-def save_cluster(label, article_ids, pipeline_run_id):
+def save_cluster(label, article_ids, pipeline_run_id, conn=None):
     """Save a cluster with its article associations. Returns cluster ID."""
-    conn = get_connection()
+    manage_tx = (conn is None)
+    if manage_tx:
+        conn = get_connection()
     cur = conn.cursor()
 
     if _is_sqlite():
@@ -367,14 +403,17 @@ def save_cluster(label, article_ids, pipeline_run_id):
                 (cluster_id, aid),
             )
 
-    conn.commit()
-    conn.close()
+    if manage_tx:
+        conn.commit()
+        conn.close()
     return cluster_id
 
 
-def save_story_group(title, cluster_ids):
+def save_story_group(title, cluster_ids, conn=None):
     """Save a story group linking multiple clusters."""
-    conn = get_connection()
+    manage_tx = (conn is None)
+    if manage_tx:
+        conn = get_connection()
     cur = conn.cursor()
 
     if _is_sqlite():
@@ -400,6 +439,7 @@ def save_story_group(title, cluster_ids):
                 (group_id, cid),
             )
 
-    conn.commit()
-    conn.close()
+    if manage_tx:
+        conn.commit()
+        conn.close()
     return group_id
