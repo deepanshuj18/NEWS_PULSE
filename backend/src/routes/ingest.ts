@@ -29,7 +29,7 @@ async function getGithubActionsStatus(
       },
     }
   );
-  const data = await resp.json();
+  const data = await resp.json() as any;
   const latestRun = data.workflow_runs?.[0];
   
   if (!latestRun) return { status: "unknown", conclusion: null };
