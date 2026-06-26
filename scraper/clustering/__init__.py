@@ -18,7 +18,9 @@ except ImportError:
     HAS_HDBSCAN = False
     print("[Cluster] HDBSCAN not available, falling back to keyword overlap")
 
-from config import MIN_CLUSTER_SIZE, MIN_SAMPLES, CLUSTER_SELECTION_METHOD, STORY_MERGE_THRESHOLD
+from config import MIN_CLUSTER_SIZE, MIN_SAMPLES, CLUSTER_SELECTION_METHOD, STORY_MERGE_THRESHOLD, DEBUG_SANITIZER, ENABLE_HEADLINE_SANITIZER, ENABLE_CLUSTER_PURITY_VALIDATION, CLUSTER_PURITY_THRESHOLD
+from .sanitizer import DocumentPreprocessor
+from .purity import PurityValidator
 
 
 # Standard English stop words
@@ -75,8 +77,26 @@ def cluster_articles(articles):
 
     print(f"[Cluster] Clustering {len(articles)} articles...")
 
-    # Prepare text corpus
-    texts = [prepare_text(a) for a in articles]
+    preprocessor = DocumentPreprocessor()
+    
+    # Preprocess all articles
+    processed_articles = []
+    for a in articles:
+        sanitized_fields = preprocessor.preprocess(a, ENABLE_HEADLINE_SANITIZER)
+        
+        # Create a shallow copy for vectorization only
+        temp_a = dict(a)
+        temp_a["title"] = sanitized_fields["headline"]
+        temp_a["summary"] = sanitized_fields["summary"]
+        temp_a["body"] = sanitized_fields["body"]
+        
+        processed_articles.append(temp_a)
+
+    if DEBUG_SANITIZER:
+        preprocessor.stats.print_report()
+
+    # Prepare text corpus using the sanitized versions
+    texts = [prepare_text(a) for a in processed_articles]
 
     # Build TF-IDF matrix
     vectorizer = TfidfVectorizer(
@@ -90,12 +110,21 @@ def cluster_articles(articles):
     feature_names = vectorizer.get_feature_names_out()
 
     # ── Step 1: Form unlabeled clusters ──────────────────────────────────────
-    if HAS_HDBSCAN and len(articles) >= MIN_CLUSTER_SIZE:
-        raw_clusters = _hdbscan_cluster(tfidf_matrix, articles, feature_names)
+    if HAS_HDBSCAN and len(processed_articles) >= MIN_CLUSTER_SIZE:
+        raw_clusters = _hdbscan_cluster(tfidf_matrix, processed_articles, feature_names)
     else:
-        raw_clusters = _keyword_overlap_cluster(articles, feature_names, tfidf_matrix)
+        raw_clusters = _keyword_overlap_cluster(processed_articles, feature_names, tfidf_matrix)
 
-    print(f"[Cluster] Found {len(raw_clusters)} clusters. Starting batch labeling...")
+    # ── Step 1.5: Purity Validation ──────────────────────────────────────────
+    if ENABLE_CLUSTER_PURITY_VALIDATION:
+        validator = PurityValidator(
+            min_cluster_size=MIN_CLUSTER_SIZE,
+            threshold=CLUSTER_PURITY_THRESHOLD
+        )
+        raw_clusters = validator.validate(raw_clusters, tfidf_matrix)
+        validator.stats.print_report()
+
+    print(f"[Cluster] Found {len(raw_clusters)} valid clusters. Starting batch labeling...")
 
     # ── Step 2: Pre-generate fallback labels and gather headlines ─────────────
     # These are computed LOCALLY (no API call) so they're always available.
@@ -183,6 +212,7 @@ def _hdbscan_cluster(tfidf_matrix, articles, feature_names):
             "keyword_label": keyword_label,
             "article_ids": article_ids,
             "articles": cluster_articles_list,
+            "indices": indices,
         })
 
     return raw_clusters
@@ -224,6 +254,7 @@ def _keyword_overlap_cluster(articles, feature_names, tfidf_matrix):
                 "keyword_label": keyword_label,
                 "article_ids": article_ids,
                 "articles": cluster_articles_list,
+                "indices": cluster_indices,
             })
 
     return raw_clusters

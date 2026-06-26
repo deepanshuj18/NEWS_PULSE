@@ -109,11 +109,13 @@ export default function Home() {
       const data = await getClusterDetail(clusterId);
       setSelectedItem({ type: "cluster", id: clusterId, detail: data });
     } catch (error) {
-      console.error("Failed to fetch cluster details:", error);
       setSelectedItem(null);
       if (error instanceof Error && error.message.toLowerCase().includes("not found")) {
+        console.warn(`Cluster ${clusterId} not found (likely removed by a new pipeline run). Refreshing...`);
         alert("This topic is no longer available. Refreshing...");
         handleRefresh();
+      } else {
+        console.error("Failed to fetch cluster details:", error);
       }
     } finally {
       setIsDetailLoading(false);

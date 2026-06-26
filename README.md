@@ -1,6 +1,6 @@
 # 📰 News Pulse — AI-Powered Topic-Clustered News Timeline
 
-> A full-stack news intelligence platform that ingests live articles from 5 major RSS feeds, automatically discovers related topics using NLP, groups evolving stories into macro-events, and visualizes them as an interactive timeline — all in under 90 seconds per pipeline run.
+> A full-stack news intelligence platform that ingests live articles from 5 major RSS feeds, automatically discovers news topics using TF-IDF, HDBSCAN, document preprocessing, and medoid-based cluster refinement, then groups related events into macro-stories — all in under 90 seconds per pipeline run.
 
 *Built for the Xponentium India Internship Assessment.*
 
@@ -40,6 +40,8 @@
 | 📄 **Full-Text Extraction** | ✅ | Extracts article bodies via `trafilatura` with `newspaper3k` + `BeautifulSoup` fallbacks |
 | 🛡️ **SHA-256 Deduplication** | ✅ | Normalized URL hashing prevents duplicate articles across pipeline runs |
 | 🧠 **Semantic Clustering** | ✅ | TF-IDF vectorization + HDBSCAN discovers organic topic clusters |
+| 🧹 **Document Preprocessing** | ✅ | Sanitizes headlines and summaries by removing publisher noise, source suffixes, and multi-topic RSS contamination before vectorization |
+| 🛡️ **Cluster Purity Validation** | ✅ | Medoid-based post-clustering validation removes weak bridge articles while preserving minimum cluster size |
 | 🤖 **Gemini Label Generation** | ✅ | Gemini 2.5 Flash generates human-readable titles via batched API calls |
 | 📚 **Story Grouping** | ✅ | Cosine similarity merges related clusters into macro-stories |
 | ✦ **Top Stories View** | ✅ | Grouped accordion UI surfacing macro-stories and their angles |
@@ -79,7 +81,14 @@
                          │
                          ▼
               ┌──────────────────────┐
-              │  TF-IDF              │  Title (×2 weight)
+              │  Document            │  Headline sanitization
+              │  Preprocessor        │  Multi-topic split
+              │                      │  Summary cleanup
+              └──────────┬───────────┘
+                         │
+                         ▼
+              ┌──────────────────────┐
+              │  TF-IDF              │  Sanitized Title (×2)
               │  Vectorization       │  + Summary + Body[:500]
               └──────────┬───────────┘
                          │
@@ -87,6 +96,13 @@
               ┌──────────────────────┐
               │  HDBSCAN Clustering  │  No fixed k required
               │                      │  Handles noise articles
+              └──────────┬───────────┘
+                         │
+                         ▼
+              ┌──────────────────────┐
+              │  Cluster Purity      │  Medoid selection
+              │  Validation          │  Cosine similarity filter
+              │                      │  Min cluster protection
               └──────────┬───────────┘
                          │
                          ▼
@@ -123,16 +139,29 @@
 
 ## 🧠 Clustering Approach
 
-### 1 · TF-IDF Vectorization
+### 1 · Document Preprocessing
+
+Before vectorization, every article passes through a preprocessing pipeline that improves semantic quality while preserving the original publisher content stored in the database.
+
+The preprocessing stage performs:
+- Presentation prefix removal (e.g. "Breaking:", "Watch:", "Live Updates:")
+- Publisher suffix removal (e.g. "- BBC News")
+- Multi-topic RSS headline splitting
+- Summary cleanup
+- Unicode and whitespace normalization
+
+Only the text used for embeddings is modified. Original titles remain unchanged and are displayed in the UI.
+
+### 2 · TF-IDF Vectorization
 
 Each article is transformed into a sparse numerical vector using:
-- **Title** (repeated twice for higher weight)
-- **Summary**
+- **Sanitized title** (repeated twice for higher weight)
+- **Cleaned summary**
 - **Article body** (first 500 characters)
 
 A custom stop-word list removes 90+ common English words before vectorization.
 
-### 2 · HDBSCAN Clustering
+### 3 · HDBSCAN Clustering
 
 | Property | HDBSCAN | K-Means |
 |---|---|---|
@@ -143,7 +172,15 @@ A custom stop-word list removes 90+ common English words before vectorization.
 
 This is why HDBSCAN is the right algorithm for a live news stream where the number of stories changes every day.
 
-### 3 · Gemini 2.5 Flash Label Generation — Batched
+### 4 · Cluster Purity Validation
+
+After HDBSCAN discovers topic clusters, each cluster is validated before persistence.
+
+Instead of accepting every cluster member, the pipeline computes a representative **medoid** for each cluster using pairwise cosine similarity. Each article is then compared against the medoid — articles with similarity below the configured threshold are treated as weak bridge articles and removed.
+
+To avoid over-filtering, the validator always preserves the configured minimum cluster size. This significantly reduces semantic contamination caused by loosely related articles while preserving genuine event coverage. The validator is feature-flag gated, allowing A/B comparison against the unvalidated pipeline.
+
+### 5 · Gemini 2.5 Flash Label Generation — Batched
 
 After HDBSCAN finishes, representative headlines from every cluster are **batched** and sent to Gemini 2.5 Flash.
 
@@ -195,6 +232,8 @@ Level 1 — Macro Story (Story Group)
 
 Story grouping works by computing the cosine similarity between **cluster centroids** (average TF-IDF vectors of all articles in a cluster). Clusters with similarity ≥ 0.35 are merged into one macro-story.
 
+Story grouping operates only after clusters have passed purity validation. This ensures that macro-stories are constructed from high-quality topic clusters instead of noisy intermediate results.
+
 ---
 
 ## 🗄️ Database Schema
@@ -241,6 +280,8 @@ sources
 - **trafilatura** + **newspaper3k** + **BeautifulSoup4** — full-text extraction with fallback chain
 - **scikit-learn** — TF-IDF vectorization
 - **HDBSCAN** — density-based clustering
+- **Custom Document Preprocessor** — headline sanitization and RSS cleanup
+- **Custom Cluster Purity Validator** — medoid-based cluster refinement
 - **google-genai** — Gemini 2.5 Flash batched label generation
 
 ### Infrastructure
@@ -279,7 +320,7 @@ GET  /ingest/status/:id  # Poll pipeline job status
 
 ## ⚡ Performance
 
-**Latest pipeline run (from terminal logs):**
+**Latest production metrics:**
 
 ```
 New articles:   3
@@ -287,8 +328,15 @@ Clusters:       79
 Story Groups:   7 (Deadly Omega Heatwave, Owaisi BJP Citizenship,
                    Venezuela Double Quakes, Scotland World Cup, ...)
 Gemini calls:   8 (batched from 79 clusters)
-Time taken:     1m 16s (76.91s total)
+Pipeline runtime: 76.91s
 ```
+
+**Pipeline improvements:**
+
+- ~75% runtime reduction compared to the original sequential pipeline
+- ~90% reduction in Gemini API calls through batching
+- Headline preprocessing removes publisher noise before vectorization
+- Medoid-based purity validation reduces semantic contamination after clustering
 
 **Optimization impact (sequential → batched Gemini calls):**
 
@@ -322,12 +370,33 @@ Below is the real-world benchmarking comparison tracking the performance leap fr
 * **Token Chunk Batching:** Grouped 48 discrete mathematical clusters into 5 highly optimized API payloads (batch size = 10) utilizing structured JSON schema outputs via Gemini 2.5 Flash.
 * **Deterministic Execution:** Shaved over 5 minutes off background execution overhead, ensuring the entire extraction, density-clustering (HDBSCAN), and semantic classification loop stays safely under a 2-minute cloud runtime window.
 * **Production Resource Footprint:** Total input/output telemetry dropped pipeline cost to fractions of a cent ($0.000970 total), significantly lowering the repository's long-term operational budget.
+
+### 🧪 NLP Quality Improvements
+
+Beyond runtime optimization, two quality-focused preprocessing stages were introduced:
+
+#### Document Preprocessing
+- Removes RSS presentation prefixes
+- Removes publisher suffixes
+- Splits multi-topic headlines
+- Cleans summaries
+- Preserves original publisher content
+
+#### Cluster Purity Validation
+- Medoid-based representative selection
+- Cosine similarity validation
+- Weak member removal
+- Minimum cluster size protection
+- Feature-flag driven A/B testing
 ---
 
 ## 🔒 Reliability
 
 ### Deduplication
 Every article URL is normalized and hashed with SHA-256 before insertion. Duplicates are silently skipped, making the pipeline safe to re-run at any time.
+
+### Cluster Quality Protection
+Topic clusters are validated before database persistence. Each cluster passes through a medoid-based purity validator that removes weak bridge articles while preserving cluster cohesion. This improves downstream story grouping and Gemini label quality without modifying the original HDBSCAN output.
 
 ### Gemini Fallback Chain
 ```
@@ -430,15 +499,20 @@ npm run dev
 
 ## 🔮 Future Improvements
 
-- [ ] Sentence-transformer embeddings for deeper semantic understanding
+- [ ] HDBSCAN membership probability filtering
+- [ ] Event evolution tracking
+- [ ] Sentence-transformer embeddings
+- [ ] Hybrid semantic + entity similarity
+- [ ] Story importance ranking
 - [ ] Real-time WebSocket timeline updates
 - [ ] Multi-language clustering support
-- [ ] Named entity extraction for people/places/orgs
 - [ ] Sentiment trend analysis per story group
 - [ ] Persistent job tracking via database (replace in-memory status)
 - [x] ~~LLM cluster labeling~~ *(Gemini 2.5 Flash — implemented)*
 - [x] ~~Macro story grouping~~ *(Story Groups — implemented)*
 - [x] ~~Batch API calls~~ *(10 clusters per Gemini call — implemented)*
+- [x] ~~Headline sanitization~~ *(Document Preprocessor — implemented)*
+- [x] ~~Cluster contamination filtering~~ *(Medoid-based Purity Validation — implemented)*
 
 ---
 
