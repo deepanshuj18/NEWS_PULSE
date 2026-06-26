@@ -1,22 +1,24 @@
 
+
+
+
 name: Run News Pulse Scraper
 
 on:
   schedule:
-    - cron: '0 * * * *' # Runs automatically at the start of every hour
-  workflow_dispatch: # This allows you to manually press a button on GitHub to test it anytime!
+    - cron: '0 * * * *'
   repository_dispatch:
-    types: [manual-trigger]
+    types: [trigger-scraper]
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v5 # Upgraded from v4 to clear Node warning
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v6 # Upgraded from v5 to clear Node warning
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
 
