@@ -78,8 +78,7 @@ router.post("/trigger", async (req: Request, res: Response) => {
     // ── PRODUCTION: GitHub Actions dispatch ──────────────────────────────────
     const githubToken = process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
     if (!githubToken) {
-      console.warn("[Ingest] Warning: GITHUB_PERSONAL_ACCESS_TOKEN is not set. Mocking trigger response.");
-      return res.status(202).json({ jobId: `job_${Date.now()}`, status: 'running' });
+      throw new Error("GITHUB_PERSONAL_ACCESS_TOKEN environment variable is missing.");
     }
 
     // Triggers your free GitHub Actions pipeline via the GitHub API
@@ -99,14 +98,17 @@ router.post("/trigger", async (req: Request, res: Response) => {
     if (!response.ok) {
       const errText = await response.text();
       console.error("GitHub API error:", response.status, errText);
-      throw new Error(`GitHub API returned ${response.status}`);
+      throw new Error(`GitHub API returned ${response.status}: ${errText}`);
     }
 
     console.log("[Ingest] GitHub pipeline triggered successfully.");
     return res.status(202).json({ jobId: `job_${Date.now()}`, status: "running" });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Failed to trigger pipeline:", error);
-    return res.status(500).json({ error: "Failed to initialize scraping pipeline" });
+    return res.status(500).json({ 
+      error: "Failed to initialize scraping pipeline",
+      details: error?.message || String(error)
+    });
   }
 });
 
