@@ -520,7 +520,7 @@ npm run dev
 
 A 2–3 minute walkthrough covering the architecture, pipeline execution, Top Stories UI, and live demonstration.
 
-**[Insert Link Here]**
+* *
 
 ---
 
