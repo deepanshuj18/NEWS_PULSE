@@ -12,7 +12,7 @@
 |---|---|
 | **Frontend** | https://news-pulse-seven-henna.vercel.app/ |
 | **Backend API** | https://news-pulse-05i3.onrender.com/ |
-| **Demo Video** | [YouTube / Loom Link] |
+| **Demo Video** | https://www.loom.com/share/4fc63681e33b46e6a7a16388d9e40f71 |
 
 ---
 
